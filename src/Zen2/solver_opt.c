@@ -61,7 +61,7 @@ double* my_solver(int N, double *A, double *B, double *x) {
 				}
 
 				while (pC < pC_end)
-				*pC++ += a_ki * *pB++;
+					*pC++ += a_ki * *pB++;
 			}
 		}
 	}
@@ -71,30 +71,30 @@ double* my_solver(int N, double *A, double *B, double *x) {
 	* Loop order i,j,k with pointer increments.
 	* The inner loop unrolled by 4.
 	*/
-for (int i_start = 0; i_start < N; i_start += BLOCK_2) {
-		int i_end = i_start + BLOCK_2 < N ? i_start + BLOCK_2 : N;
+	for (int i_start = 0; i_start < N; i_start += BLOCK_2) {
+			int i_end = i_start + BLOCK_2 < N ? i_start + BLOCK_2 : N;
 
-	for (int j_start = i_start; j_start < N; j_start += BLOCK_2) {
-		int j_end = j_start + BLOCK_2 < N ? j_start + BLOCK_2 : N;
+		for (int j_start = i_start; j_start < N; j_start += BLOCK_2) {
+			int j_end = j_start + BLOCK_2 < N ? j_start + BLOCK_2 : N;
 
-		for (int i = i_start; i < i_end; i++) {
-			register double *pCi = C + i * N;
-			register double *pCi_end = pCi + N;
-			int j_lo = j_start > i ? j_start : i;
+			for (int i = i_start; i < i_end; i++) {
+				register double *pCi = C + i * N;
+				register double *pCi_end = pCi + N;
+				int j_lo = j_start > i ? j_start : i;
 
-			for (int j = j_lo; j < j_end; j++) {
-				register double *pCi_k = pCi;
-				register double *pCj_k = C + j * N;
-				register double s0 = 0.0, s1 = 0.0, s2 = 0.0, s3 = 0.0;
+				for (int j = j_lo; j < j_end; j++) {
+					register double *pCi_k = pCi;
+					register double *pCj_k = C + j * N;
+					register double s0 = 0.0, s1 = 0.0, s2 = 0.0, s3 = 0.0;
 
-				while (pCi_k <= pCi_end - 4) {
-					s0 += pCi_k[0] * pCj_k[0];
-					s1 += pCi_k[1] * pCj_k[1];
-					s2 += pCi_k[2] * pCj_k[2];
-					s3 += pCi_k[3] * pCj_k[3];
+					while (pCi_k <= pCi_end - 4) {
+						s0 += pCi_k[0] * pCj_k[0];
+						s1 += pCi_k[1] * pCj_k[1];
+						s2 += pCi_k[2] * pCj_k[2];
+						s3 += pCi_k[3] * pCj_k[3];
 
-					pCi_k += 4;
-					pCj_k += 4;
+						pCi_k += 4;
+						pCj_k += 4;
 					}
 
 					register double sum = s0 + s1 + s2 + s3;
