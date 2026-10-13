@@ -1,8 +1,3 @@
-/*
- * ASC Assignment 2
- * 2026 Spring
- */
-
 #include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,7 +8,7 @@
 #include <sys/mman.h>
 #include <string.h>
 
-//used to generate random numbers between [0, limit]
+// Used to generate random numbers between [0, limit]
 #define RANGE 1
 
 #define SAFE_ASSERT(condition, message) while(condition) {	\

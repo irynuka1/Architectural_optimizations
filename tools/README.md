@@ -1,4 +1,4 @@
-# tools
+# Tools
 
 - `compare.c` — `compare <file1> <file2> <tolerance>`: element-wise comparison of two result files.
 - `benchmark.sh` — `tools/benchmark.sh [input] [output.csv]`: runs every solver in `build/` and writes `solver,N,seconds` rows.

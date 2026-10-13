@@ -1,8 +1,3 @@
-/*
- * ASC Assignment 2
- * 2026 Spring
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>

@@ -1,12 +1,5 @@
-/*
- * ASC Assignment 2
- * 2026 Spring
- */
 #include "utils.h"
 
-/*
- * Naive baseline: direct translation of the formula
- */
 double* my_solver(int N, double *A, double *B, double *x) {
 	double *C = calloc(N * N, sizeof(double));
 	double *D = calloc(N * N, sizeof(double));

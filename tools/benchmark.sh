@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Runs every available solver on an input file and writes a CSV (solver,N,seconds).
-# Usage: tools/benchmark.sh [input_file] [output_csv]
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

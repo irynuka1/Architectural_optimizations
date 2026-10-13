@@ -1,16 +1,8 @@
-/*
- * ASC Assignment 2
- * 2026 Spring
- */
-
 #include "utils.h"
 
 #define BLOCK_1 40
 #define BLOCK_2 20
 
-/*
- * Optimized + cache-blocked implementation tuned for Zen 2 (512 KB L2)
- */
 double* my_solver(int N, double *A, double *B, double *x) {
 	double *C = calloc(N * N, sizeof(double));
 	double *D = calloc(N * N, sizeof(double));

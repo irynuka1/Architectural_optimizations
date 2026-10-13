@@ -1,7 +1,3 @@
-/*
- * ASC Assignment 2
- * 2026 Spring
- */
 #include "utils.h"
 #include <cblas.h>
 
