@@ -1,7 +1,6 @@
 /*
- * Tema 2 ASC
+ * ASC Assignment 2
  * 2026 Spring
- * !!! Do not modify this file !!!
  */
 
 #include <stdlib.h>
@@ -16,7 +15,7 @@
 #define check_err(a,b,err) ((fabs((a) - (b)) <= (err)) ? 0 : -1)
 
 /* 
- * Compares two upper matrixes withtin a tolerance limit
+ * Compares two upper-triangular matrices within a tolerance limit
  */
 int cmp_files(char const *file_path1, char const *file_path2, double precision) {
 	struct stat fileInfo1, fileInfo2;

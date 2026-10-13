@@ -1,12 +1,12 @@
 /*
- * Tema 2 ASC
+ * ASC Assignment 2
  * 2026 Spring
  */
 #include "utils.h"
 #include <cblas.h>
 
 /*
- * Add your BLAS implementation here
+ * BLAS implementation (OpenBLAS)
  */
 double* my_solver(int N, double *A, double *B, double *x) {
 	double *C    = calloc(N * N, sizeof(double));

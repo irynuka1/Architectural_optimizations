@@ -1,11 +1,11 @@
 /*
- * Tema 2 ASC
+ * ASC Assignment 2
  * 2026 Spring
  */
 #include "utils.h"
 
 /*
- * Add your unoptimized implementation here
+ * Naive baseline: direct translation of the formula
  */
 double* my_solver(int N, double *A, double *B, double *x) {
 	double *C = calloc(N * N, sizeof(double));

@@ -1,11 +1,11 @@
 /*
- * Tema 2 ASC
+ * ASC Assignment 2
  * 2026 Spring
  */
 #include "utils.h"
 
 /*
- * Add your optimized implementation here
+ * Optimized implementation: loop reordering, pointer increments, registers, unrolling
  */
 double* my_solver(int N, double *A, double *B, double *x) {
 	double *C = calloc(N * N, sizeof(double));

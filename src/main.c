@@ -1,7 +1,6 @@
 /*
- * Tema 2 ASC
+ * ASC Assignment 2
  * 2026 Spring
- * !!! Do not modify this file !!!
  */
 
 #include "utils.h"

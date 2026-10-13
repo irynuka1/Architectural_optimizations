@@ -1,2 +1,4 @@
 optimizari.sif
-optimizari.sif
+build/
+out[0-9]*
+*.gch

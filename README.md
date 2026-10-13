@@ -1,189 +1,108 @@
-# Optimizare calcul matriceal
+# Architectural Optimizations — Dense Matrix Computation in C
 
-## Cuprins
+Hand-optimizing a small linear-algebra kernel and measuring how far architecture-aware C can go compared to a naive version and to OpenBLAS.
 
-- [Specificații hardware și software](#specificații-hardware-și-software)
-- [Implementări](#implementări)
-  - [solver_neopt.c](#solver_neoptc)
-  - [solver_opt.c](#solver_optc)
-  - [solver_blas.c](#solver_blasc)
-- [Bonus — Zen 2 Renoir](#bonus--zen-2-renoir)
-- [Rezultate și grafice](#rezultate-și-grafice)
-- [Prompturi LLM utilizate](#prompturi-llm-utilizate)
+## The problem
 
----
-
-## Specificații hardware și software
-
-### Arhitectura primară — Intel Haswell (cluster)
-
-
-| Specificație          | Valoare                          |
-| --------------------- | -------------------------------- |
-| **CPU**               | Intel Xeon E5-2640 v3            |
-| **Arhitectură**       | Haswell                          |
-| **Dimensiune proces** | 22 nm                            |
-| **Frecvență**         | 2.6 GHz (base) → 3.5 GHz (boost) |
-| **RAM**               | 64 GB DDR4 ~2133 MHz             |
-| **Bandwidth memorie** | 59.7 GB/s                        |
-| **Compilator**        | GCC 14.3.1                       |
-
-
-**Cache-uri** (per nod NUMA, 8 core-uri):
-
-
-| Nivel | Tip         | Dimensiune         | Asociativitate | Cache line |
-| ----- | ----------- | ------------------ | -------------- | ---------- |
-| L1d   | Data        | 32 KB × 8 = 256 KB | 8-way          | 64 B       |
-| L1i   | Instruction | 32 KB × 8 = 256 KB | 8-way          | 64 B       |
-| L2    | Unified     | 256 KB × 8 = 2 MB  | 8-way          | 64 B       |
-| L3    | Unified     | 20 MB × 1          | 20-way         | 64 B       |
-
-
-> **Notă:** clusterul conține două noduri NUMA (2 sockete). Datele de mai sus se referă la un singur nod.
-
----
-
-## Implementări
-
-### solver_neopt.c
-
-Traducerea directă a formulei în cod C, fără nicio optimizare:
+Given `N×N` matrices `A`, `B` and a vector `x`, compute:
 
 ```
 C = Aᵀ · B
-D = C · Cᵀ         (D este simetrică — se calculează doar triunghiul superior)
-y = Σᵢ D · linie(C, i) + x
+D = C · Cᵀ
+y = D · Σᵢ row(C, i) + x
 ```
 
-Buclele triple standard cu indexare `arr[i*N+j]`, fără reordonare sau acumulatori.
+Four solvers implement it behind the same `my_solver()` interface:
 
----
+| Solver | File | Idea |
+| --- | --- | --- |
+| Naive | `src/solvers/solver_neopt.c` | Direct translation of the formula; only the upper triangle of `D` is computed and mirrored. |
+| Optimized | `src/solvers/solver_opt.c` | Loop reordering (`k,i,j`), pointer increments, `register` hints, 4× unrolling with independent accumulators (ILP). |
+| Zen 2 tuned | `src/solvers/solver_opt_zen2.c` | Same as above plus cache blocking sized for a 512 KB L2 (`BLOCK_1=40`, `BLOCK_2=20`). |
+| BLAS | `src/solvers/solver_blas.c` | `dgemm`, `dsyrk`, `dgemv`, `dsymv`, `daxpy` from OpenBLAS. |
 
-### solver_opt.c
+## How it works
 
-Pornind de la varianta neoptimizată, s-au aplicat succesiv următoarele optimizări:
+- **Loop order.** In `C = Aᵀ·B`, the `i,j,k` order reads `A` with stride `N`. Using `k,i,j` makes `A[k][i]` a loop constant and walks `B` and `C` contiguously.
+- **Fewer address computations.** Pointer increments replace `arr[i*N+j]` indexing.
+- **Registers and ILP.** Four independent accumulators break the floating-point dependency chain so the FP units stay busy, while staying within 16 YMM registers.
+- **Symmetry.** `D` is computed only on one triangle; the `y` term is reduced to a matrix-vector product.
+- **Cache blocking (Zen 2).** On a CPU with a smaller L3 (APU), working sets of `C`/`D` are tiled to stay in L2.
 
-#### 1. Reordonarea buclelor pentru `C = Aᵀ · B`
+## Project layout
 
-Ordinea originală `i, j, k` accesează `A[k*N+i]` cu stride `N` — complet non-secvențial.  
-Schimbând în ordinea `k, i, j`, valoarea `A[k*N+i]` devine o constantă pentru toată bucla internă (`a_ki`), iar `B` și `C` sunt parcurse secvențial, maximizând reutilizarea cache line-urilor.
+```
+.
+├── Makefile            Builds every solver and the comparison tool into build/
+├── include/utils.h     Shared types and prototypes
+├── src/
+│   ├── main.c          Test driver: generates data, times my_solver(), writes output
+│   └── solvers/        Naive, optimized, Zen 2 and BLAS implementations
+├── tools/
+│   ├── compare.c       Compares two result files within a tolerance
+│   ├── benchmark.sh    Times every built solver and writes a CSV
+│   └── plot_times.py   Bar chart of running times per matrix size from CSV files
+├── input/              Test descriptors (N, seed, output file)
+├── results/            Benchmark CSVs and plots
+├── references/         Reference outputs (generated in the cluster's Apptainer environment)
+└── profiling/          Cachegrind and Valgrind reports (haswell/, zen2/)
+```
 
-Pentru celelalte două operații (`D = C·Cᵀ` și bucla `y`), ordinea standard era deja optimă — ambele rânduri parcurse sunt contigue în memorie.
+## Build and run
 
-> **Câștig:** ~6 s pe matricea 1200×1200 față de `neopt`.
+Requirements: `gcc`, `make`, OpenBLAS headers (`cblas.h`) for the BLAS solver, `matplotlib`/`numpy` for plotting.
 
-#### 2. Pointer increments
+```bash
+make                                   # builds into build/
+./build/solver_opt input/input         # runs 5 tests, writes out1..out5
+./build/compare out1 references/out1 1e-6
+tools/benchmark.sh input/input results/times.csv   # time all built solvers
+python3 tools/plot_times.py results/times.csv -o results/times.png
+```
 
-Indexarea `arr[i*N+j]` implică o înmulțire și o adunare la fiecare iterație pentru calculul adresei. Înlocuind cu `*p++`, adresa se avansează cu o singură adunare pe iterație. Aplicat în toate cele trei operații.
+Input format: first line is the number of tests, then one `N seed output_file` per line.
 
-> **Câștig:** ~2 s suplimentar față de pasul anterior.
+## Tested architectures
 
-#### 3. Utilizarea registrelor
+| | Intel Xeon E5-2640 v3 (Haswell) | AMD Ryzen 5 4600H (Zen 2, Renoir) |
+| --- | --- | --- |
+| Environment | Cluster node (Apptainer) | Laptop APU |
+| Process | 22 nm | 7 nm |
+| Frequency | 2.6 GHz base, 3.5 GHz boost | 3.0 GHz base, 4.0 GHz boost |
+| L1d / L2 (per core) | 32 KB / 256 KB | 32 KB / 512 KB |
+| L3 | 20 MB, 20-way | 8 MB (2 × 4 MB), 16-way |
+| Memory | 64 GB DDR4-2133, ~59.7 GB/s | 16 GB DDR4-3200, ~51.2 GB/s |
+| Vector registers | 16 × YMM | 16 × YMM |
+| Compiler | GCC 14.3.1 | GCC 15.2.1 (16.2.1 for the plot below) |
 
-Cuvântul cheie `register` a fost folosit în trei contexte distincte:
+Haswell's large L3 keeps the whole working set resident at N=1200, so plain loop optimizations are enough. Zen 2 has a bigger L2 but a much smaller L3, so the Zen 2 solver tiles the work to fit L2.
 
-1. **Pointeri de parcurgere** (`pA_k`, `pB`, `pC`, `pCi`, `pD_r` etc.) — pointerii sunt citiți și incrementați la fiecare iterație; `register` elimină load/store-ul repetat de pe stivă și îi menține în registre fizice.
-2. **Constante hoistate** (`a_ki = pA_k[i]`) — valoare fixă pe durata buclei interne, calculată o singură dată și păstrată în registru în loc să fie recalculată la fiecare iterație.
-3. **Acumulatori multipli** (`s0..s3`, `y0..y3`) — scrierile în memorie (`D[...]`, `y[r]`) sunt reduse la una singură per (i,j), după terminarea buclei interne. Combinat cu unrolling, permit exploatarea ILP.
+## Results
 
-#### 4. Loop unrolling ×4 cu ILP
+Wall-clock time per matrix size on the Ryzen 5 4600H (`-O0 -march=native`), produced with `tools/benchmark.sh` and `tools/plot_times.py`:
 
-Un singur acumulator creează un lanț serial de dependențe: iterația `n+1` nu poate începe până nu se termină adunarea FP din iterația `n`. Folosind **4 acumulatori independenți** (`s0..s3`), unitățile FP pot executa instrucțiunile în paralel.
+![Running times on Zen 2](results/zen2.png)
 
-S-a ales factorul 4 deoarece arhitectura oferă **16 registre YMM** (`YMM0–YMM15`). Buclele interne folosesc ~7–8 registre FP simultan, încadrându-se confortabil în limită și evitând register spilling.
+| N | naive (s) | optimized (s) | optimized + blocking (s) |
+| --- | --- | --- | --- |
+| 400 | 1.13 | 0.07 | 0.07 |
+| 600 | 1.79 | 0.24 | 0.24 |
+| 800 | 7.62 | 0.85 | 0.56 |
+| 1000 | 9.29 | 1.91 | 1.09 |
+| 1200 | 18.61 | 3.39 | 1.89 |
 
-#### De ce nu s-a aplicat cache blocking?
+Blocking only pays off once the matrices stop fitting comfortably in cache (N ≥ 800). To compare architectures, run the benchmark on another machine and plot both files together:
 
-Analizând cu Cachegrind, LLd miss rate pentru N=1200 pe Haswell este **0.0%** — toate datele active intră în L3. Implementarea cache blocking-ului nu ar fi adus un câștig măsurabil pe această arhitectură.
+```bash
+tools/benchmark.sh input/input results/haswell.csv
+python3 tools/plot_times.py results/haswell.csv results/zen2.csv -o results/compare.png
+```
 
----
+## Profiling
 
-### solver_blas.c
+```bash
+valgrind --leak-check=full ./build/solver_opt input/input_valgrind
+valgrind --tool=cachegrind ./build/solver_opt input/input_valgrind
+```
 
-Apeluri către funcții BLAS optimizate pentru arhitectura țintă:
-
-
-| Operație                 | Funcție BLAS  |
-| ------------------------ | ------------- |
-| `C = Aᵀ · B`             | `cblas_dgemm` |
-| `D = C · Cᵀ` (simetric)  | `cblas_dsyrk` |
-| `y = D · v` (D simetric) | `cblas_dsymv` |
-| `y = y + x`              | `cblas_daxpy` |
-
-
----
-
-## Bonus — Zen 2 Renoir
-
-### Specificații
-
-
-| Specificație          | Valoare                                 |
-| --------------------- | --------------------------------------- |
-| **CPU**               | AMD Ryzen 5 4600H (6 cores, 12 threads) |
-| **Arhitectură**       | Zen 2 (Renoir)                          |
-| **Dimensiune proces** | 7 nm                                    |
-| **Frecvență**         | 3 GHz (base) → 4 GHz (boost)            |
-| **RAM**               | 16 GB (2 × 8 GB) DDR4-3200 CL22         |
-| **Bandwidth memorie** | 51.2 GB/s                               |
-| **Compilator**        | GCC 15.2.1                              |
-
-
-**Cache-uri** (per core unde nu e specificat altfel):
-
-
-| Nivel | Tip         | Dimensiune      | Asociativitate | Cache line | Sharing          |
-| ----- | ----------- | --------------- | -------------- | ---------- | ---------------- |
-| L1d   | Data        | 32 KB           | 8-way          | 64 B       | per core         |
-| L1i   | Instruction | 32 KB           | 8-way          | 64 B       | per core         |
-| L2    | Unified     | 512 KB          | 8-way          | 64 B       | per core         |
-| L3    | Unified     | 4 MB × 2 = 8 MB | 16-way         | 64 B       | shared (6 cores) |
-
-
-### Comparație cu Haswell
-
-
-| Caracteristică        | Haswell   | Zen 2 Renoir |
-| --------------------- | --------- | ------------ |
-| Frecvență boost       | 3.5 GHz   | 4.0 GHz      |
-| L2 per core           | 256 KB    | 512 KB       |
-| L3 total              | 20 MB     | 8 MB         |
-| Fereastră de execuție | 192 µops  | 224 µops     |
-| Memorie               | DDR4-2133 | DDR4-3200    |
-
-
-### Problemă identificată
-
-Varianta optimizată pentru Haswell, rulată pe Zen 2 cu N=1200, genera **LLd misses** semnificative în Cachegrind. Cauza: cele 3 matrice active (C, D, B) ocupă prea multă memorie pe Zen 2 (acesta este un APU — L3-ul a fost redus pentru a lăsa spațiu iGPU-ului).
-
-### Soluție: cache blocking
-
-S-au adăugat blocuri calibrate pe L2=512 KB (un rând = N×8 = 9.6 KB pentru N=1200):
-
-
-| Operație     | Block size                 | Ocupare L2                        |
-| ------------ | -------------------------- | --------------------------------- |
-| `C = Aᵀ · B` | `BLOCK_1 = 40` rânduri     | 40 × 9.6 KB = 384 KB < 512 KB     |
-| `D = C · Cᵀ` | `BLOCK_2 = 20` rânduri × 2 | 2 × 20 × 9.6 KB = 384 KB < 512 KB |
-| Bucla `y`    | `BLOCK_1 = 40` rânduri     | 40 × 9.6 KB = 384 KB < 512 KB     |
-
-
-Blocurile active rămân în L2 pe durata iterațiilor, evitând accesul la RAM.
-
-> **Câștig:** ~1.2 s față de varianta fără blocking pe N=1200 pe Zen 2.
-
----
-
-## Rezultate și grafice
-
-Graficele "grafic_haswell.png" și "grafic_zen2.png" arată timpii de execuție pentru toate implementările pe matricele de dimensiuni 400, 600, 800, 1000 și 1200. Se observă că timpii de execuție pentru primele trei matrice sunt mai scăzuți pentru Zen 2, iar pentru matricele mai mari apar accese la memoria RAM, iar timpii încep să se egalizeze.
-
-În schimb, pentru variantele optimizate se vede avantajul de cache L2 și frecvență pe care îl are Zen 2 față de Haswell.
-
-
-**Analiza Cachegrind** (N=400, ambele arhitecturi):
-
-- LL miss rate: **0%** — toate datele intră în cache la finalul execuției
-- D1 miss rate: **~5.1%** — datele nu încap complet în L1, ceea ce este așteptat
-- Valgrind confirmă absența memory leaks pentru toate implementările
+Stored reports live in `profiling/`, measured on an Intel Xeon E5-2640 v3 (Haswell) and an AMD Ryzen 5 4600H (Zen 2).
